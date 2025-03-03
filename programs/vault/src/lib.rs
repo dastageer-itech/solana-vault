@@ -42,6 +42,7 @@ mod vault {
 
         // Update user balance
         let user_account = &mut ctx.accounts.user_account;
+        user_account.user = ctx.accounts.user.key();
         user_account.balance = user_account
             .balance
             .checked_add(amount)
