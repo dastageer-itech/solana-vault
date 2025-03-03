@@ -53,43 +53,43 @@ mod vault {
 
     pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
         let user_account = &mut ctx.accounts.user_account;
-        
+
         // Ensure user has enough balance
         require!(
             user_account.balance >= amount,
             VaultError::InsufficientBalance
         );
-        
+
         // Ensure vault has enough tokens
         require!(
             ctx.accounts.vault_token_account.amount >= amount,
             VaultError::InsufficientVaultBalance
         );
-        
+
         // Transfer tokens from vault to user
         let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.vault.bump]];
         let signer_seeds = &[vault_seeds];
-        
+
         let cpi_accounts = Transfer {
             from: ctx.accounts.vault_token_account.to_account_info(),
             to: ctx.accounts.user_token_account.to_account_info(),
             authority: ctx.accounts.vault.to_account_info(),
         };
-        
+
         let cpi_ctx = CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
             cpi_accounts,
             signer_seeds,
         );
-        
+
         token::transfer(cpi_ctx, amount)?;
-        
+
         // Update user balance
         user_account.balance = user_account
             .balance
             .checked_sub(amount)
             .ok_or(VaultError::MathUnderflow)?;
-        
+
         Ok(())
     }
 }
@@ -119,7 +119,7 @@ pub struct Deposit<'info> {
     pub vault_token_account: Account<'info, TokenAccount>,
 
     #[account(
-        init,
+        init_if_needed,
         payer = user,
         space = 8 + 32 + 8,
         seeds = [b"user_account", user.key().as_ref()],

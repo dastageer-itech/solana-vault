@@ -134,4 +134,45 @@ describe("Vault Program - Initialize, Deposit, Withdraw", () => {
       console.error("Failed to withdraw tokens:", error);
     }
   });
+
+  it("Deposits tokens into the vault again", async () => {
+    try {
+      const tx = await program.methods
+        .deposit(new anchor.BN(20_000_000)) // 20 tokens
+        .accounts({
+          user: wallet.publicKey,
+          userTokenAccount,
+          vaultTokenAccount,
+          vault: vaultPDA,
+          userAccount: userAccountPDA,
+          systemProgram: SystemProgram.programId,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .rpc();
+
+      console.log("Tokens deposited again, transaction signature:", tx);
+    } catch (error) {
+      console.error("Failed to deposit tokens again:", error);
+    }
+  });
+
+  it("Withdraws tokens from the vault again", async () => {
+    try {
+      const tx = await program.methods
+        .withdraw(new anchor.BN(10_000_000)) // Withdraw 10 tokens
+        .accounts({
+          user: wallet.publicKey,
+          userTokenAccount,
+          vaultTokenAccount,
+          vault: vaultPDA,
+          userAccount: userAccountPDA,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .rpc();
+
+      console.log("Tokens withdrawn again, transaction signature:", tx);
+    } catch (error) {
+      console.error("Failed to withdraw tokens again:", error);
+    }
+  });
 });
