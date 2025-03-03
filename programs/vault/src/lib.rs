@@ -9,8 +9,10 @@ mod vault {
 
     pub fn initialize(ctx: Context<Initialize>, mint: Pubkey) -> Result<()> {
         let bump = ctx.bumps.vault;
-        ctx.accounts.vault.mint = mint;
-        ctx.accounts.vault.bump = bump;
+
+        let vault = &mut ctx.accounts.vault;
+        vault.mint = mint;
+        vault.bump = bump;
         Ok(())
     }
 
@@ -20,59 +22,73 @@ mod vault {
             VaultError::InvalidToken
         );
 
+        // Transfer tokens from user to vault
         let cpi_accounts = Transfer {
             from: ctx.accounts.user_token_account.to_account_info(),
             to: ctx.accounts.vault_token_account.to_account_info(),
             authority: ctx.accounts.user.to_account_info(),
         };
-        let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
-        token::transfer(cpi_ctx, amount)?;
 
-        ctx.accounts.user_account.balance = ctx
-            .accounts
-            .user_account
-            .balance
-            .checked_add(amount)
-            .ok_or(VaultError::MathOverflow)?;
-        Ok(())
-    }
+        let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.vault.bump]];
+        let signer_seeds = &[vault_seeds];
 
-    pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
-        require!(
-            ctx.accounts.user_account.balance >= amount,
-            VaultError::InsufficientBalance
-        );
-        require!(
-            ctx.accounts.vault_token_account.amount >= amount,
-            VaultError::InsufficientVaultBalance
-        );
-        require!(
-            ctx.accounts.user_token_account.mint == ctx.accounts.vault.mint,
-            VaultError::InvalidToken
-        );
-
-        let bump = ctx.accounts.vault.bump;
-        let seeds: &[&[u8]] = &[b"vault", &[bump]];
-        let signer_seeds = &[&seeds[..]];
-
-        let cpi_accounts = Transfer {
-            from: ctx.accounts.vault_token_account.to_account_info(),
-            to: ctx.accounts.user_token_account.to_account_info(),
-            authority: ctx.accounts.vault.to_account_info(),
-        };
         let cpi_ctx = CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
             cpi_accounts,
             signer_seeds,
         );
+
         token::transfer(cpi_ctx, amount)?;
 
-        ctx.accounts.user_account.balance = ctx
-            .accounts
-            .user_account
+        // Update user balance
+        let user_account = &mut ctx.accounts.user_account;
+        user_account.balance = user_account
+            .balance
+            .checked_add(amount)
+            .ok_or(VaultError::MathOverflow)?;
+
+        Ok(())
+    }
+
+    pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
+        let user_account = &mut ctx.accounts.user_account;
+        
+        // Ensure user has enough balance
+        require!(
+            user_account.balance >= amount,
+            VaultError::InsufficientBalance
+        );
+        
+        // Ensure vault has enough tokens
+        require!(
+            ctx.accounts.vault_token_account.amount >= amount,
+            VaultError::InsufficientVaultBalance
+        );
+        
+        // Transfer tokens from vault to user
+        let vault_seeds: &[&[u8]] = &[b"vault", &[ctx.accounts.vault.bump]];
+        let signer_seeds = &[vault_seeds];
+        
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.vault_token_account.to_account_info(),
+            to: ctx.accounts.user_token_account.to_account_info(),
+            authority: ctx.accounts.vault.to_account_info(),
+        };
+        
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            cpi_accounts,
+            signer_seeds,
+        );
+        
+        token::transfer(cpi_ctx, amount)?;
+        
+        // Update user balance
+        user_account.balance = user_account
             .balance
             .checked_sub(amount)
             .ok_or(VaultError::MathUnderflow)?;
+        
         Ok(())
     }
 }
@@ -101,12 +117,19 @@ pub struct Deposit<'info> {
     )]
     pub vault_token_account: Account<'info, TokenAccount>,
 
-    #[account(mut, has_one = user)]
+    #[account(
+        init,
+        payer = user,
+        space = 8 + 32 + 8,
+        seeds = [b"user_account", user.key().as_ref()],
+        bump
+    )]
     pub user_account: Account<'info, UserAccount>,
 
     #[account(mut)]
     pub vault: Account<'info, Vault>,
 
+    pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
 }
 
@@ -158,4 +181,6 @@ pub enum VaultError {
     MathOverflow,
     #[msg("Math underflow occurred")]
     MathUnderflow,
+    #[msg("Missing bump seed")]
+    MissingBump,
 }

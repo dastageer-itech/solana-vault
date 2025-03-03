@@ -5,9 +5,12 @@ import { PublicKey, SystemProgram, Keypair } from "@solana/web3.js";
 import {
   createMint,
   getOrCreateAssociatedTokenAccount,
+  mintTo,
+  TOKEN_PROGRAM_ID,
+  transfer,
 } from "@solana/spl-token";
 
-describe("Vault Program - Initialize", () => {
+describe("Vault Program - Initialize, Deposit, Withdraw", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
@@ -18,6 +21,9 @@ describe("Vault Program - Initialize", () => {
   let vaultPDA: PublicKey;
   let vaultBump: number;
   let userTokenAccount: PublicKey;
+  let vaultTokenAccount: PublicKey;
+  let userAccountPDA: PublicKey;
+  let userAccountBump: number;
 
   before(async () => {
     // Create a new SPL token mint
@@ -43,6 +49,22 @@ describe("Vault Program - Initialize", () => {
       wallet.publicKey
     );
     userTokenAccount = userAta.address;
+
+    // Create an associated token account for the vault
+    const vaultAta = await getOrCreateAssociatedTokenAccount(
+      provider.connection,
+      wallet.payer,
+      mint,
+      vaultPDA,
+      true
+    );
+    vaultTokenAccount = vaultAta.address;
+
+    // Find the PDA for the user's vault account
+    [userAccountPDA, userAccountBump] = PublicKey.findProgramAddressSync(
+      [Buffer.from("user_account"), wallet.publicKey.toBuffer()],
+      program.programId
+    );
   });
 
   it("Initializes the vault", async () => {
@@ -59,6 +81,57 @@ describe("Vault Program - Initialize", () => {
       console.log("Vault initialized, transaction signature:", tx);
     } catch (error) {
       console.error("Failed to initialize vault:", error);
+    }
+  });
+
+  it("Deposits tokens into the vault", async () => {
+    // Mint tokens to the user's token account
+    await mintTo(
+      provider.connection,
+      wallet.payer,
+      mint,
+      userTokenAccount,
+      wallet.publicKey,
+      100_000_000 // 100 tokens (assuming 6 decimals)
+    );
+
+    try {
+      const tx = await program.methods
+        .deposit(new anchor.BN(50_000_000)) // 50 tokens
+        .accounts({
+          user: wallet.publicKey,
+          userTokenAccount,
+          vaultTokenAccount,
+          vault: vaultPDA,
+          userAccount: userAccountPDA,
+          systemProgram: SystemProgram.programId,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .rpc();
+
+      console.log("Tokens deposited, transaction signature:", tx);
+    } catch (error) {
+      console.error("Failed to deposit tokens:", error);
+    }
+  });
+
+  it("Withdraws tokens from the vault", async () => {
+    try {
+      const tx = await program.methods
+        .withdraw(new anchor.BN(30_000_000)) // Withdraw 30 tokens
+        .accounts({
+          user: wallet.publicKey,
+          userTokenAccount,
+          vaultTokenAccount,
+          vault: vaultPDA,
+          userAccount: userAccountPDA,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .rpc();
+
+      console.log("Tokens withdrawn, transaction signature:", tx);
+    } catch (error) {
+      console.error("Failed to withdraw tokens:", error);
     }
   });
 });
